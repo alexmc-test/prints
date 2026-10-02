@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "mdl-bda264f2dd15",
+  "name": "754048_lego_us_bumper_track",
+  "origin": {
+    "kind": "downloaded",
+    "source_url": null,
+    "site": null,
+    "designer": null,
+    "retrieved": "2026-10-02"
+  },
+  "license": {
+    "state": "unknown",
+    "name": null,
+    "flags": []
+  },
+  "versions": [
+    {
+      "id": "v1",
+      "kind": "upstream",
+      "date": "2026-10-02",
+      "files": [
+        {
+          "path": "original/754048_lego_us_bumper_track.stl",
+          "sha256": "1d5b233d35824dc3b34ece1237e1fc37a17e2e91689fae41fe317ea3c724e2a9",
+          "units": "mm",
+          "original_filename": "754048_lego_us_bumper_track.stl"
+        }
+      ]
+    }
+  ]
+}
