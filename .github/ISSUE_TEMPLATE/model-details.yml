@@ -1,0 +1,75 @@
+# Generated from src/core/issue-forms.ts by scripts/build-tool.ts (npm run build:tool). Do not edit by hand.
+name: "Complete model details"
+description: "Add where a model came from, its designer, license and display name."
+title: "Model details"
+body:
+  - type: markdown
+    attributes:
+      value: "Complete a model's record without editing JSON. Only the fields you fill in change. The library bot opens a pull request that updates the model's project.json; merging it closes this issue."
+  - type: input
+    id: model
+    attributes:
+      label: "Model"
+      description: "The model's folder name (slug), its id (mdl-…), or a link to its page in the viewer or on GitHub."
+      placeholder: "benchy"
+    validations:
+      required: true
+  - type: input
+    id: source_url
+    attributes:
+      label: "Source link"
+      description: "The page you downloaded the model from (https://…)."
+      placeholder: "https://www.printables.com/model/…"
+    validations:
+      required: false
+  - type: input
+    id: designer
+    attributes:
+      label: "Designer"
+    validations:
+      required: false
+  - type: dropdown
+    id: license
+    attributes:
+      label: "License"
+      description: "The license shown on the model's page. Pick \"Other / not sure\" and write it below if it is not listed."
+      multiple: false
+      options:
+        - "CC BY 4.0"
+        - "CC BY-SA 4.0"
+        - "CC BY-NC 4.0"
+        - "CC BY-NC-SA 4.0"
+        - "CC BY-ND 4.0"
+        - "CC BY-NC-ND 4.0"
+        - "CC0 1.0"
+        - "GNU GPL v3"
+        - "GNU LGPL v3"
+        - "Standard Digital File License"
+        - "MakerWorld Exclusive License"
+        - "Other / not sure"
+    validations:
+      required: false
+  - type: input
+    id: license_other
+    attributes:
+      label: "Other license"
+      description: "Only for \"Other / not sure\": the license name exactly as the model's page shows it. Leave empty if you are not sure."
+    validations:
+      required: false
+  - type: input
+    id: name
+    attributes:
+      label: "Display name"
+    validations:
+      required: false
+  - type: dropdown
+    id: form
+    attributes:
+      label: "Form"
+      description: "Tells the library bot which form this is. Choose its only option."
+      multiple: false
+      options:
+        - "library-form:model-details"
+      default: 0
+    validations:
+      required: true

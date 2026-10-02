@@ -1,0 +1,185 @@
+# The library check. Pull requests are checked from the default branch's
+# workflow and tool, never from their own: this workflow fetches the pull
+# request's head as git objects, never checks it out or runs it, checks it with
+# the base branch's pinned tool and posts the result on the head commit as the
+# "Library check" check run. Pushes to the default branch are checked directly.
+#
+# Two triggers reach the same jobs. `pull_request_target` always runs the base
+# branch's copy of this file, so a pull request cannot stop it; GitHub disables
+# it by default in public repositories from 2026-11-02, and the Finish setup
+# issue asks the owner to re-enable it. The fallback is `workflow_run` of
+# "Library check request", which works at every visibility but which a pull
+# request can suppress by removing that workflow. Both may run for one pull
+# request; they report the same findings, and any failing "Library check"
+# keeps the pull request blocked.
+#
+# Every job that runs the tool first verifies it against TOOL_SHA256 and stops
+# on a mismatch. `library tool update` (or `npm run build:tool` in 3dhub)
+# rewrites the pin; nothing else may change it.
+name: Library check
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  workflow_run:
+    workflows: [Library check request]
+    types: [completed]
+  push:
+
+permissions:
+  contents: read
+
+env:
+  TOOL_SHA256: "9b26ee7aedf76d34c6e59e352d06d4f393fd14293e9325ee8584e100afde6ef0"
+  CHECK_NAME: Library check
+
+jobs:
+  check:
+    name: Check pull request
+    if: github.event_name == 'pull_request_target' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}
+      HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login || github.event.pull_request.head.repo.owner.login }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || github.event.pull_request.head.ref }}
+    outputs:
+      found: ${{ steps.pr.outputs.found }}
+      conclusion: ${{ steps.check.outputs.conclusion }}
+      report: ${{ steps.check.outputs.report }}
+    steps:
+      # The base branch: its tool, its history. The head is fetched below as data.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Verify the pinned tool
+        run: echo "$TOOL_SHA256  .library/tool.mjs" | sha256sum --check --strict
+      - name: Find the pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Unexpected head commit."; exit 1; }
+          pulls="$RUNNER_TEMP/pulls.json"
+          gh api -X GET "repos/$REPOSITORY/pulls" -f state=open -f head="$HEAD_OWNER:$HEAD_BRANCH" -f per_page=100 > "$pulls"
+          pick() { jq -r --arg sha "$HEAD_SHA" "[.[] | select(.head.sha == \$sha)] | if length == 1 then .[0].$1 else \"\" end" "$pulls"; }
+          number=$(pick number)
+          if [[ -z "$number" ]]; then
+            echo "::notice::No open pull request has head $HEAD_SHA; nothing to check."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base_sha=$(pick base.sha)
+          association=$(pick author_association)
+          [[ "$number" =~ ^[0-9]+$ && "$base_sha" =~ ^[0-9a-f]{40}$ && "$association" =~ ^[A-Z_]+$ ]] || { echo "::error::Unexpected pull request data."; exit 1; }
+          { echo "found=true"; echo "number=$number"; echo "base_sha=$base_sha"; echo "author_association=$association"; } >> "$GITHUB_OUTPUT"
+      - name: Fetch the pull request as data
+        id: fetch
+        if: steps.pr.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          # Objects only: no checkout, no submodules, no hooks, nothing from the head runs.
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.$GITHUB_SERVER_URL/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --quiet --no-tags --no-recurse-submodules origin "+$HEAD_SHA:refs/library-check/head" "+$BASE_SHA:refs/library-check/base"
+          # On its own line so errexit stops on unrelated histories; an empty base would skip the tooling and originals checks.
+          base=$(git merge-base refs/library-check/head refs/library-check/base)
+          [[ "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::The pull request shares no history with its base."; exit 1; }
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+      - name: Check the pull request with the default branch's tool
+        id: check
+        if: steps.pr.outputs.found == 'true'
+        env:
+          BASE: ${{ steps.fetch.outputs.base }}
+          VISIBILITY: ${{ github.event.repository.private && 'private' || 'public' }}
+          AUTHOR_ASSOCIATION: ${{ steps.pr.outputs.author_association }}
+        run: |
+          set -uo pipefail
+          report="$RUNNER_TEMP/report.md"
+          status=0
+          node .library/tool.mjs check --repo-dir . --ref "$HEAD_SHA" --base "$BASE" --visibility "$VISIBILITY" --author-association "$AUTHOR_ASSOCIATION" --format markdown > "$report" || status=$?
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          case "$status" in
+            0) conclusion=success ;;
+            1) conclusion=failure ;;
+            *) echo "::error::The library tool failed (exit $status)."; exit "$status" ;;
+          esac
+          delimiter="report_$(openssl rand -hex 16)"
+          { echo "conclusion=$conclusion"; echo "report<<$delimiter"; head -c 60000 "$report"; echo; echo "$delimiter"; } >> "$GITHUB_OUTPUT"
+
+  report:
+    name: Report pull request check
+    needs: check
+    if: always() && (github.event_name == 'pull_request_target' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')) && needs.check.outputs.found != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      checks: write
+    steps:
+      - name: Post the Library check on the pull request head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}
+          CHECK_RESULT: ${{ needs.check.result }}
+          CONCLUSION: ${{ needs.check.outputs.conclusion }}
+          REPORT: ${{ needs.check.outputs.report }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Unexpected head commit."; exit 1; }
+          title="Errors found"
+          if [[ "$CHECK_RESULT" != success || ! "$CONCLUSION" =~ ^(success|failure)$ ]]; then
+            # Fail closed: a check that could not run (a changed tool, a failed fetch) is a failure.
+            CONCLUSION=failure
+            title="The check could not run"
+            REPORT="The library check could not run, so this pull request is unchecked. If the run says the tool does not match its pinned SHA-256, restore .library/tool.mjs on the default branch."
+          fi
+          [[ "$CONCLUSION" == success ]] && title="No errors"
+          printf -v summary '%s\n\n[Check run](%s)' "$REPORT" "$RUN_URL"
+          jq -n --arg name "$CHECK_NAME" --arg sha "$HEAD_SHA" --arg conclusion "$CONCLUSION" --arg title "$title" --arg summary "$summary" \
+            '{name: $name, head_sha: $sha, status: "completed", conclusion: $conclusion, output: {title: $title, summary: $summary}}' \
+            | gh api -X POST "repos/$REPOSITORY/check-runs" --input - --jq '.html_url'
+
+  default-branch:
+    name: Check default branch
+    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Verify the pinned tool
+        run: echo "$TOOL_SHA256  .library/tool.mjs" | sha256sum --check --strict
+      - name: Check the default branch
+        env:
+          VISIBILITY: ${{ github.event.repository.private && 'private' || 'public' }}
+        run: |
+          set -uo pipefail
+          report="$RUNNER_TEMP/report.md"
+          status=0
+          node .library/tool.mjs check --repo-dir . --ref HEAD --visibility "$VISIBILITY" --format markdown > "$report" || status=$?
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          cat "$report"
+          exit "$status"

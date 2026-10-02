@@ -1,0 +1,25 @@
+# Asks for the library check of a pull request. This workflow runs from the
+# pull request's own files, so it does nothing: no checkout, no token, no
+# secrets. Its completion starts check.yml from the default branch, which
+# checks the pull request's head as data with the default branch's pinned tool
+# and posts the result as the "Library check" check run. A pull request that
+# removes or renames this workflow gets no "Library check", and a ruleset
+# that requires it blocks the merge.
+name: Library check request
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  request:
+    name: Request library check
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Hand over to the default branch's check
+        run: echo "check.yml on the default branch checks this pull request and reports it as Library check."

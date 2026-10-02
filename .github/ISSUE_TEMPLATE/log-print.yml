@@ -1,0 +1,91 @@
+# Generated from src/core/issue-forms.ts by scripts/build-tool.ts (npm run build:tool). Do not edit by hand.
+name: "Log a print"
+description: "Record one print of a model: how it went, the material and photos."
+title: "Print log"
+body:
+  - type: markdown
+    attributes:
+      value: "Log one print of a model in this library. The library bot opens a pull request that adds the print; merging it closes this issue. Only people with write access to the library can log prints. Photos are imported with their location data removed."
+  - type: input
+    id: model
+    attributes:
+      label: "Model"
+      description: "The model's folder name (slug), its id (mdl-…), or a link to its page in the viewer or on GitHub."
+      placeholder: "benchy"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: "Version"
+      description: "The model version you printed, such as v2. Leave empty for the latest version."
+      placeholder: "v1"
+    validations:
+      required: false
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: "Outcome"
+      multiple: false
+      options:
+        - "success"
+        - "partial"
+        - "failed"
+    validations:
+      required: true
+  - type: input
+    id: date
+    attributes:
+      label: "Date printed"
+      description: "As YYYY-MM-DD. Leave empty for the day this issue was opened."
+      placeholder: "2026-10-01"
+    validations:
+      required: false
+  - type: input
+    id: material
+    attributes:
+      label: "Material"
+      description: "The filament you used. Leave empty when workshop.json lists exactly one material."
+      placeholder: "Grey PLA"
+    validations:
+      required: false
+  - type: input
+    id: printer
+    attributes:
+      label: "Printer"
+      description: "Leave empty to use the printer in workshop.json."
+    validations:
+      required: false
+  - type: input
+    id: nozzle
+    attributes:
+      label: "Nozzle (mm)"
+      description: "Nozzle diameter in millimetres. Leave empty to use workshop.json."
+      placeholder: "0.4"
+    validations:
+      required: false
+  - type: textarea
+    id: note
+    attributes:
+      label: "Note"
+      description: "What went well or wrong, and any settings you changed."
+    validations:
+      required: false
+  - type: textarea
+    id: photos
+    attributes:
+      label: "Photos"
+      description: "Drag photos of the print here (JPEG, PNG, WebP or GIF, up to 10 MB each). They appear as images."
+    validations:
+      required: false
+  - type: dropdown
+    id: form
+    attributes:
+      label: "Form"
+      description: "Tells the library bot which form this is. Choose its only option."
+      multiple: false
+      options:
+        - "library-form:log-print"
+      default: 0
+    validations:
+      required: true

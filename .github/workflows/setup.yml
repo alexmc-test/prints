@@ -1,0 +1,63 @@
+# Finish setup: on the library's first push to its default branch (or when run
+# by hand from the Actions tab), create this workflow's label and open one
+# "Finish setup" issue with the steps from README.md. Never runs in the
+# template repository itself and never writes to the repository's files.
+name: Library setup
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TOOL_SHA256: "9b26ee7aedf76d34c6e59e352d06d4f393fd14293e9325ee8584e100afde6ef0"
+  SETUP_LABEL: library-setup
+
+concurrency:
+  group: library-setup
+
+jobs:
+  setup:
+    name: Finish setup
+    if: ${{ !github.event.repository.is_template && github.ref_name == github.event.repository.default_branch && (github.event_name == 'workflow_dispatch' || github.run_number == 1) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify the pinned tool
+        run: echo "$TOOL_SHA256  .library/tool.mjs" | sha256sum --check --strict
+      - name: Create the setup label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: gh label create "$SETUP_LABEL" --repo "$REPOSITORY" --color 0e8a16 --description "Library setup steps" --force
+      - name: Open the Finish setup issue once
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          opened=$(gh api "repos/$REPOSITORY/issues?labels=$SETUP_LABEL&state=all&per_page=100" --jq '[.[] | select(.user.login == "github-actions[bot]")] | length')
+          if [[ "$opened" != 0 ]]; then
+            echo "The Finish setup issue already exists."
+            exit 0
+          fi
+          steps=$(sed -n '/<!-- finish-setup:begin -->/,/<!-- finish-setup:end -->/p' README.md | sed '1d;$d' | sed "s|](\.\./\.\./|]($GITHUB_SERVER_URL/$REPOSITORY/|g")
+          [[ -n "$steps" ]] || steps="See the Finish setup section of the README."
+          body="$RUNNER_TEMP/setup.md"
+          {
+            echo "<!-- library-bot:setup -->"
+            echo "This library is ready to use. One setting cannot come from the template; turn it on here and close this issue. The optional steps below make GitHub block merging pull requests with errors. The same steps are in the README."
+            echo
+            echo "$steps"
+            echo
+            echo "Pull requests are checked by **Library check**. Once this library is public it opens in the viewer at https://print-library.alexcarvalho.me/$REPOSITORY."
+          } > "$body"
+          gh issue create --repo "$REPOSITORY" --title "Finish setup" --label "$SETUP_LABEL" --body-file "$body"

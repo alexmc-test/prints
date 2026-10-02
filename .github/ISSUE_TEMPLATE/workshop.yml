@@ -1,0 +1,74 @@
+# Generated from src/core/issue-forms.ts by scripts/build-tool.ts (npm run build:tool). Do not edit by hand.
+name: "Set up the workshop"
+description: "Describe your printer, nozzle, build plate, materials and slicer presets."
+title: "Workshop setup"
+body:
+  - type: markdown
+    attributes:
+      value: "These facts replace the library's workshop.json and are snapshotted into every print you log. Do not enter paths on your computer (the slicer program, profile folders, Python): those belong in your local configuration."
+  - type: input
+    id: printer
+    attributes:
+      label: "Printer model"
+      placeholder: "Bambu Lab P1S"
+    validations:
+      required: false
+  - type: input
+    id: printer_name
+    attributes:
+      label: "Printer nickname"
+    validations:
+      required: false
+  - type: input
+    id: nozzle
+    attributes:
+      label: "Nozzle (mm)"
+      placeholder: "0.4"
+    validations:
+      required: false
+  - type: input
+    id: build_plate
+    attributes:
+      label: "Build plate"
+      placeholder: "Textured PEI"
+    validations:
+      required: false
+  - type: textarea
+    id: materials
+    attributes:
+      label: "Materials"
+      description: "One material per line: the name, optionally followed by | type | brand | color | notes."
+      placeholder: "Grey PLA | PLA | Example Filaments | grey"
+    validations:
+      required: false
+  - type: input
+    id: slicer
+    attributes:
+      label: "Slicer"
+      placeholder: "Bambu Studio"
+    validations:
+      required: false
+  - type: input
+    id: slicer_version
+    attributes:
+      label: "Slicer version"
+    validations:
+      required: false
+  - type: textarea
+    id: presets
+    attributes:
+      label: "Slicer preset ids"
+      description: "One preset name or id per line."
+    validations:
+      required: false
+  - type: dropdown
+    id: form
+    attributes:
+      label: "Form"
+      description: "Tells the library bot which form this is. Choose its only option."
+      multiple: false
+      options:
+        - "library-form:workshop"
+      default: 0
+    validations:
+      required: true

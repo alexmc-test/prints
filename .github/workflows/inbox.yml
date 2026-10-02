@@ -1,0 +1,157 @@
+# Library inbox: uploads to inbox/ (and files committed into a model folder)
+# become pull requests (drafts while the check finds errors), or compare links in one tracking issue when
+# GitHub Actions may not create pull requests here. Three jobs:
+#
+#   gather   reads the bot's pull requests and the tracking issue with a
+#            read-only token and parses nothing;
+#   parse    runs the pinned tool with no token: drafts every upload at the
+#            branch head, checks each draft and writes the publish artifact;
+#   publish  holds the write token, re-validates the artifact (paths under
+#            models/<folder>/ or deletions of uploads, nothing under .library/
+#            or .github/, size caps), pushes library/draft/* branches, opens
+#            or updates pull requests or the tracking issue and posts the
+#            "Library check" run. It never parses an upload.
+#
+# Runs share one queue. Each run takes the whole inbox and every model folder
+# at the branch head as fetched, so a cancelled pending run loses nothing; an
+# upload is identified by its path and SHA-256. A push to another branch of
+# this repository (an upload with "create a new branch") is drafted as one
+# commit on that branch. Run it by hand with `redraft` set to an upload's path
+# to draft it again after its pull request was closed.
+name: Library inbox
+
+on:
+  push:
+    paths:
+      - "inbox/**"
+      - "models/**"
+  workflow_dispatch:
+    inputs:
+      redraft:
+        description: "Path of an upload whose draft was closed, to draft it again (for example inbox/model.3mf)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  TOOL_SHA256: "9b26ee7aedf76d34c6e59e352d06d4f393fd14293e9325ee8584e100afde6ef0"
+  INBOX_LABEL: library-inbox
+
+concurrency:
+  group: library-inbox
+  cancel-in-progress: false
+
+jobs:
+  gather:
+    name: Gather bot state
+    if: >-
+      !github.event.repository.is_template &&
+      ((github.event_name == 'push' && github.ref_type == 'branch' && !github.event.deleted && !startsWith(github.ref_name, 'library/')) ||
+      (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Read pull requests and the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/gathered"
+          mkdir -p "$out"
+          gh api --paginate --slurp "repos/$REPOSITORY/pulls?state=all&per_page=100" > "$out/pulls.json"
+          gh api --paginate --slurp "repos/$REPOSITORY/issues?state=all&labels=$INBOX_LABEL&creator=github-actions%5Bbot%5D&per_page=100" > "$out/issues.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: inbox-gathered
+          path: ${{ runner.temp }}/gathered
+          retention-days: 1
+
+  parse:
+    name: Draft uploads
+    needs: gather
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      # Every branch is fetched: the run drafts at the branch's current head, not the pushed commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Verify the pinned tool
+        run: echo "$TOOL_SHA256  .library/tool.mjs" | sha256sum --check --strict
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: inbox-gathered
+          path: ${{ runner.temp }}/gathered
+      - name: Draft and check every upload
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REPOSITORY: ${{ github.repository }}
+          REDRAFT: ${{ inputs.redraft }}
+          VISIBILITY: ${{ github.event.repository.private && 'private' || 'public' }}
+        run: |
+          set -euo pipefail
+          node .library/tool.mjs inbox --repo-dir . --gathered "$RUNNER_TEMP/gathered" --out "$RUNNER_TEMP/drafts" \
+            --repository="$REPOSITORY" --default-branch="$DEFAULT_BRANCH" --ref-name="$REF_NAME" --event="$EVENT_NAME" \
+            --redraft="$REDRAFT" --visibility="$VISIBILITY"
+          cat "$RUNNER_TEMP/drafts/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: inbox-drafts
+          path: ${{ runner.temp }}/drafts
+          retention-days: 1
+
+  publish:
+    name: Publish drafts
+    needs: parse
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      checks: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Verify the pinned tool
+        run: echo "$TOOL_SHA256  .library/tool.mjs" | sha256sum --check --strict
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: inbox-drafts
+          path: ${{ runner.temp }}/drafts
+      - name: Push drafts and open pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The token reaches git through environment configuration for this step only, never stored.
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.$GITHUB_SERVER_URL/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          node .library/tool.mjs publish --inbox "$RUNNER_TEMP/drafts" --mode actions \
+            --repository="$REPOSITORY" --default-branch="$DEFAULT_BRANCH" --ref-name="$REF_NAME" | tee "$RUNNER_TEMP/published.json"

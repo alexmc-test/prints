@@ -1,0 +1,8 @@
+# Host details the print helpers write next to their receipts (absolute paths,
+# commands, interpreter, slicer location) and the raw slicer output. Receipts
+# themselves are committed; these stay on the computer that made them.
+*.local.json
+*.local.log
+# Disposable local state
+.DS_Store
+.slicer-cache/

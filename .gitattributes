@@ -1,0 +1,18 @@
+# Keep every file's bytes exact: model files, records and the pinned library tool
+# (.library/tool.mjs) must never have their line endings converted. No Git LFS.
+* -text
+*.stl binary
+*.3mf binary
+*.obj binary
+*.step binary
+*.stp binary
+*.f3d binary
+*.gcode binary
+*.bgcode binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.heic binary
+*.glb binary
+*.zip binary
